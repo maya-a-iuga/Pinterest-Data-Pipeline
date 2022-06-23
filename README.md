@@ -8,3 +8,7 @@ Two Kafka consumers were created: one for batch processing and one for real-time
 
 ## Batch processing: Process the data using Spark
 For this part of the project, a Spark session was created. The session was configured such that it can read data from an S3 bucket. The previously saved json files can now be read back and stored in a Spark DataFrame. Using PySpark, this DataFrame was cleaned.
+
+## Batch processing:Send data to Apache Cassandra
+Apache Cassandra was configured locally to receive data from Spark. Firstly, a Cassandra keyspace and a corresponding table were created. The table had the same columnar structure as the previously created Spark DataFrame.
+A Spark to Cassandra connector was added, and then data from the Spark DataFrame was send to Cassandra.
