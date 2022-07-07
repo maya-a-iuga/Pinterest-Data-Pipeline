@@ -6,6 +6,9 @@ from pyspark.sql import SparkSession
 from pyspark import SparkContext, SparkConf
 from pyspark.sql.functions import when, col, regexp_replace, split
 
+os.environ['PYSPARK_SUBMIT_ARGS']='--packages com.amazonaws:aws-java-sdk-s3:1.12.196,org.apache.hadoop:hadoop-aws:3.3.1,com.datastax.spark:spark-cassandra-connector_2.12:3.2.0 pyspark-shell'
+
+
 class Spark_DAG():
 
     def __init__(self):
