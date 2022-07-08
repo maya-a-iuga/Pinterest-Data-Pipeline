@@ -1,13 +1,11 @@
-from curses import window
 import os
 import pyspark.sql.functions as F
 import pyspark.streaming
 from kafka import KafkaConsumer
 from json import loads
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import when, col, regexp_replace, split
-from pyspark.sql.types import StringType, StructType, StructField, IntegerType, TimestampType
-from traitlets import Integer
+from pyspark.sql.functions import when, col, regexp_replace, max
+from pyspark.sql.types import StringType, StructType, StructField, IntegerType
 
 
 # Download spark sql kakfa package from Maven repository and submit to PySpark at runtime. 
@@ -50,14 +48,14 @@ stream_df = spark \
 
 # Select the value part of the kafka message and cast it to a string.
 #stream_df = stream_df.selectExpr("CAST(value as STRING)")
-stream_df = stream_df.selectExpr("CAST(timestamp as STRING)","CAST(value as STRING)")
+stream_df = stream_df.selectExpr("CAST(value as STRING)")
 
 jsonSchema = StructType([StructField("index", IntegerType()),
                         StructField("unique_id", StringType()),
                         StructField("title", StringType()),
                         StructField("description", StringType()),
                         #StructField("poster_name", StringType()),
-                        StructField("follower_count", IntegerType()),
+                        StructField("follower_count", StringType()),
                         StructField("tag_list", StringType()),
                         StructField("poster_name", StringType()),
                         StructField("is_image_or_video", StringType()),
@@ -65,26 +63,30 @@ jsonSchema = StructType([StructField("index", IntegerType()),
                         StructField("downloaded", IntegerType()),
                         StructField("save_location", StringType()),
                         StructField("category", StringType()),
-                        #StructField("timestamp", TimestampType())
                         ])
 
-
 # convert JSON column to multiple columns
-stream_df = stream_df.withColumn("value", F.from_json(stream_df["value"], jsonSchema)).select(col("value.*"), col("timestamp"))
+stream_df = stream_df.withColumn("value", F.from_json(stream_df["value"], jsonSchema)).select(col("value.*"))
+
+# replace empty cells with Nones
+stream_df = stream_df.replace({'User Info Error': None}, subset = ['follower_count']) \
+                     .replace({"No Title Data Available": None}, subset = ['title']) \
+                     .replace({'No description available Story format': None}, subset = ['description']) \
+                     .replace({'Image src error.': None}, subset = ['image_src'])        
+
 # transforms follower_count column into int type
 stream_df = stream_df.withColumn("follower_count", when(col('follower_count').like("%k"), regexp_replace('follower_count', 'k', '000')) \
                      .when(col('follower_count').like("%M"), regexp_replace('follower_count', 'M', '000000'))\
                      .when(col('follower_count').like("%B"), regexp_replace('follower_count', 'B', '000000000')) \
-                     .cast("int")) \
-                     .fillna({'follower_count':'0'})
+                     .cast("int")) 
 
 # removes 'Save data in' part of the string -> only path left now
 stream_df = stream_df.withColumn('save_location', regexp_replace('save_location', 'Local save in ', '')) 
 
 # changes data type to int  
 stream_df= stream_df.withColumn("downloaded", stream_df["downloaded"].cast("int")) \
-                    .withColumn("index", stream_df["index"].cast("int")) \
-                    .withColumn("timestamp", stream_df["timestamp"].cast(TimestampType()))
+                    .withColumn("index", stream_df["index"].cast("int"))
+                    
 
 # replace empty values with null for all columns
 stream_df=stream_df.select([when(col(c)=="",None).otherwise(col(c)).alias(c) for c in stream_df.columns])
@@ -92,22 +94,31 @@ stream_df=stream_df.select([when(col(c)=="",None).otherwise(col(c)).alias(c) for
 # renames column for Cassandra table
 stream_df = stream_df.withColumnRenamed("index", "ind")
 
+# reorders columns
+stream_df =  stream_df.select('ind',
+                      'unique_id',
+                      'title',
+                      'description',
+                      'follower_count',
+                      'tag_list',
+                      'is_image_or_video',
+                      'image_src',
+                      'downloaded',
+                      'save_location',
+                      'category'
+                      )
 
-# feature computation
-#feature_df = stream_df \
- #            .withWatermark("timestamp", "5 minutes") \
-  #           .groupBy(
-   #                  window(stream_df.timestamp, "10 minutes", "5 minutes"),
-    #                 stream_df.category) \
-     #        .count()
 
-feature_df = stream_df.groupBy(stream_df.category).count()
-
-feature_df_2 = stream_df.groupBy().max("follower_count")
+feature_df = stream_df.groupBy(stream_df.category).count()  
+feature_df_2 = stream_df.select(F.max("follower_count"))
 
 # outputting the messages to the console 
-feature_df.writeStream \
+feature_df_2.writeStream \
     .format("console") \
     .outputMode("update") \
     .start() \
     .awaitTermination() 
+
+#spark.stop()
+
+
