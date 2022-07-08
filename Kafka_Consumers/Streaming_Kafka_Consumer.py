@@ -9,7 +9,7 @@ from pyspark.sql.types import StringType, StructType, StructField, IntegerType
 
 
 # Download spark sql kakfa package from Maven repository and submit to PySpark at runtime. 
-os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0 pyspark-shell'
+os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0,org.postgresql:postgresql:42.2.10 pyspark-shell'
 
 # Create Consumer to retrieve the messages from the topic
 #stream_pin_consumer = KafkaConsumer(
@@ -108,14 +108,33 @@ stream_df =  stream_df.select('ind',
                       'category'
                       )
 
-
+# feature computation transformations
 feature_df = stream_df.groupBy(stream_df.category).count()  
 feature_df_2 = stream_df.select(F.max("follower_count"))
 
+
+def write_streaming_to_postgres(df, epoch_id):
+
+    df.write \
+        .mode('append') \
+        .format('jdbc') \
+        .option('url', f'jdbc:postgresql://localhost:5432/Streaming_Data') \
+        .option('driver', 'org.postgresql.Driver') \
+        .option('dbtable', 'spark_streaming') \
+        .option('user', os.environ["RDS_USER"]) \
+        .option('password', os.environ["PGADMIN_PASSWORD"]) \
+        .save()
+                
 # outputting the messages to the console 
-feature_df_2.writeStream \
-    .format("console") \
-    .outputMode("update") \
+#stream_df.writeStream \
+ #   .format("console") \
+  #  .outputMode("update") \
+   # .start() \
+    #.awaitTermination() 
+
+# writing to postgres
+stream_df.writeStream \
+    .foreachBatch(write_streaming_to_postgres) \
     .start() \
     .awaitTermination() 
 
